@@ -1,0 +1,29 @@
+{
+  "name": "@hakerh400/meadow",
+  "description": "Computational model",
+  "version": "1.0.0",
+  "author": "Thomas <hakerh403@gmail.com>",
+  "main": "index.js",
+  "contributors": [],
+  "keywords": [
+    "esolang",
+    "computation",
+    "computational",
+    "model"
+  ],
+  "homepage": "https://github.com/Hakerh400/meadow",
+  "repository": "git://github.com/Hakerh400/meadow.git",
+  "scripts": {
+    "test": "node test"
+  },
+  "dependencies": {
+    "omikron": "~1.2.52"
+  },
+  "devDependencies": {
+    "@hakerh400/jstest": "~1.1.2"
+  },
+  "engines": {
+    "node": ">=15"
+  },
+  "license": "Unlicense"
+}

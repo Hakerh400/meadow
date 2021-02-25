@@ -40,8 +40,8 @@ class Database{
       return this.newEntry(expr.type);
     };
 
-    const callHandler = function*(expr){
-      return O.tco(handler, yield [[db, 'expandExpr'], expr]);
+    const callHandler = function*(entry){
+      return O.tco(handler, db.expand(entry));
     };
 
     const checkRet = result => {
@@ -56,7 +56,7 @@ class Database{
       const result = entry[0];
 
       if(result === null)
-        throw new TypeError(`Circular definition for ${O.sf(entry)}`);
+        throw new TypeError(`Circular definition for ${O.sf(entry[1])}`);
 
       return checkRet(result);
     };
@@ -91,7 +91,7 @@ class Database{
         entries.set(entry, info);
         aliases[name] = info;
 
-        return ret(info, yield [[this, 'insert'], yield [callHandler, expr], entry]);
+        return ret(info, yield [[this, 'insert'], yield [callHandler, entry], entry]);
       }
 
       assert.fail();
@@ -126,9 +126,7 @@ class Database{
         entries.set(entry, info);
         calls.set(pth, info);
 
-        const exprNew = new cs.Call(fst, snd);
-
-        return ret(info, yield [[this, 'insert'], yield [callHandler, exprNew], entry]);
+        return ret(info, yield [[this, 'insert'], yield [callHandler, entry], entry]);
       }
 
       assert.fail();
@@ -139,41 +137,46 @@ class Database{
 
   *reduce(expr, reason){
     const entry = yield [[this, 'insert'], expr, reason];
-    return O.tco([this, 'expandExpr'], entry);
+    return this.expand(entry);
   }
 
-  *expandExpr(expr){
-    if(Array.isArray(expr)){
-      const info = expr;
-      const type = info[0];
-      const entry = this.entries.get(info);
-      const details = entry[1];
+  expand(entry){
+    const info = this.entries.get(entry);
+    const type = entry[0];
+    const details = info[1];
 
-      if(type === 0)
-        return new cs.Symbol(details);
+    let expr = null;
 
-      if(type === 3)
-        return new cs.Alias(details);
+    getExpr: {
+      if(type === 0){
+        expr = new cs.Symbol(details);
+        break getExpr;
+      }
 
-      const fst = yield [[this, 'expandExpr'], details[0]];
-      const snd = yield [[this, 'expandExpr'], details[1]];
+      if(type === 3){
+        expr = new cs.Alias(details);
+        break getExpr;
+      }
 
-      if(type === 1)
-        return new cs.Struct(fst, snd);
+      const fst = () => this.expand(details[0]);
+      const snd = () => this.expand(details[1]);
 
-      if(type === 2)
-        return new cs.Call(fst, snd);
+      if(type === 1){
+        expr = new cs.Struct(fst, snd);
+        break getExpr;
+      }
+
+      if(type === 2){
+        expr = new cs.Call(fst, snd);
+        break getExpr;
+      }
 
       assert.fail();
     }
 
-    if(expr.isUnary)
-      return expr;
+    expr.entry = entry;
 
-    const fst = yield [[this, 'expandExpr'], expr.fst];
-    const snd = yield [[this, 'expandExpr'], expr.snd];
-
-    return new expr.constructor(fst, snd);
+    return expr;
   }
 
   newEntry(type){

@@ -4,7 +4,6 @@ const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 const O = require('omikron');
-const debug = require('../../JavaScript/debug');
 const Expression = require('./expr');
 
 const cs = Expression;
@@ -41,7 +40,7 @@ class Database{
     };
 
     const callHandler = function*(entry){
-      return O.tco(handler, db.expand(entry));
+      return O.tco(handler, db.entry2expr(entry));
     };
 
     const checkRet = result => {
@@ -137,10 +136,10 @@ class Database{
 
   *reduce(expr, reason){
     const entry = yield [[this, 'insert'], expr, reason];
-    return this.expand(entry);
+    return this.entry2expr(entry);
   }
 
-  expand(entry){
+  entry2expr(entry){
     const info = this.entries.get(entry);
     const type = entry[0];
     const details = info[1];
@@ -158,8 +157,8 @@ class Database{
         break getExpr;
       }
 
-      const fst = () => this.expand(details[0]);
-      const snd = () => this.expand(details[1]);
+      const fst = () => this.entry2expr(details[0]);
+      const snd = () => this.entry2expr(details[1]);
 
       if(type === 1){
         expr = new cs.Struct(fst, snd);

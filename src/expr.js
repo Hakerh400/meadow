@@ -85,6 +85,7 @@ class Alias extends Unary{
 }
 
 module.exports = Object.assign(Expression, {
+  Expression,
   Unary,
   Binary,
   Symbol,

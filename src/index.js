@@ -143,7 +143,7 @@ const fromObj = funcs => {
   for(const name of funcNames)
     objNew[name] = O.rec([db, 'reduce'], getFuncId(name));
 
-  return objNew;
+  return [db, objNew];
 };
 
 module.exports = {

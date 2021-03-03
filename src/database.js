@@ -23,7 +23,7 @@ class Database{
     this.handler = handler;
   }
 
-  *insert(expr, reason){
+  *insert(expr, reason=null){
     const {
       symbols,
       structs,

@@ -28,11 +28,12 @@ const fromObj = funcs => {
       assert(val.length !== 0);
 
       if(!done){
-        arg = yield [convertToCall, val];
+        const call = yield [convertToCall, val];
+        arg = yield [[db, 'reduce'], call];
         continue;
       }
 
-      return yield [convertToStruct, val];
+      return O.tco(convertToStruct, val);
     }
   };
 

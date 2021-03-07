@@ -5,13 +5,50 @@ const path = require('path');
 const assert = require('assert');
 const O = require('omikron');
 const Database = require('./database');
-const Expression = require('./expr');
-
-const cs = Expression;
 
 const fromObj = funcs => {
   const funcNames = O.keys(funcs);
   const db = new Database();
+  const syms = O.obj();
+
+  const name2sym = name => {
+    if(!O.has(syms, name)){
+      const sym = Symbol(name);
+
+      syms[name] = sym;
+      syms[sym] = name;
+    }
+
+    return syms[name];
+  };
+
+  const getTypeSym = function*(expr){
+    if(isSym(expr))
+      return expr;
+
+    return O.tco(getTypeSym, expr[0]);
+  };
+
+  const getArgs = function*(expr){
+    if(isSym(expr))
+      return [];
+
+    return [...yield [getArgs, expr[0]], expr[1]];
+  };
+
+  const reduce = function*(expr){
+    const name = yield [getTypeSym, expr];
+    assert(isFunc(name));
+
+    const arity = getArity(name);
+    const args = yield [getArgs, expr];
+    assert(args.length <= arity);
+
+    if(args.length !== arity)
+      return O.tco(insert, expr);
+
+    return O.tco(call, name, args);
+  };
 
   const call = function*(name, args=[]){
     assert(getArity(name) === args.length);
@@ -29,12 +66,16 @@ const fromObj = funcs => {
 
       if(!done){
         const call = yield [convertToCall, val];
-        arg = yield [[db, 'reduce'], call];
+        arg = yield [reduce, call];
         continue;
       }
 
       return O.tco(convertToStruct, val);
     }
+  };
+
+  const isFunc = sym => {
+    return O.has(funcs, sym.description);
   };
 
   const extractName = function*(expr){
@@ -57,16 +98,24 @@ const fromObj = funcs => {
 
     return args;
   };
+
+  const toStruct = function*(a, b){
+    return [a, b];
+  };
+
+  const toCall = function*(a, b){
+    return O.tco(reduce, [a, b]);
+  };
   
   const convertToStruct = function*(expr){
-    return O.tco(convertToCtor, expr, cs.Struct);
+    return O.tco(convertToCtor, expr, toStruct);
   };
 
   const convertToCall = function*(expr){
-    return O.tco(convertToCtor, expr, cs.Call);
+    return O.tco(convertToCtor, expr, toCall);
   };
 
-  const convertToCtor = function*(expr, ctor, index=null){
+  const convertToCtor = function*(expr, func, index=null){
     if(expr instanceof Expression)
       return expr;
 
@@ -82,14 +131,14 @@ const fromObj = funcs => {
     if(index === 0)
       return O.tco(convertToStruct, expr[0]);
 
-    const fst = yield [convertToCtor, expr, ctor, index - 1];
+    const fst = yield [convertToCtor, expr, func, index - 1];
     const snd = yield [convertToStruct, expr[index]];
 
-    return new ctor(fst, snd);
+    return O.tco(func, fst, snd);
   };
 
   const getFuncId = name => {
-    return isNullary(name) ? new cs.Alias(name) : new cs.Symbol(name);
+    return name2sym(name);
   };
 
   const getArity = name => {
@@ -101,14 +150,14 @@ const fromObj = funcs => {
   };
 
   const hasFunc = name => {
-    return O.has(funcs, name);
+    return O.has(funcs, syms[name]);
   };
 
   const getFunc = name => {
     if(!hasFunc(name))
       throw new TypeError(`Undefined function ${O.sf(name)}`);
 
-    return funcs[name];
+    return funcs[syms[name]];
   };
 
   const nameToExpr = name => {
@@ -116,7 +165,7 @@ const fromObj = funcs => {
     return new cs.Symbol(name);
   };
 
-  db.setHandler(function*(expr){
+  const handler = function*(expr){
     if(expr.isAlias)
       return O.tco(call, expr.name);
     
@@ -137,19 +186,29 @@ const fromObj = funcs => {
     assert(argsNum === arity);
 
     return O.tco(call, name, args);
-  });
+  };
 
   const objNew = O.obj();
 
   for(const name of funcNames)
-    objNew[name] = O.rec([db, 'reduce'], getFuncId(name));
+    objNew[name] = O.rec(reduce, getFuncId(name));
 
   return [db, objNew];
 };
 
+const isSym = expr => {
+  return typeof expr === 'symbol';
+};
+
+const isPair = expr => {
+  return typeof expr === 'object';
+};
+
 module.exports = {
   Database,
-  Expression,
 
   fromObj,
+
+  isSym,
+  isPair,
 };

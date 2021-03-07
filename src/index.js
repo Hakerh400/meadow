@@ -6,209 +6,112 @@ const assert = require('assert');
 const O = require('omikron');
 const Database = require('./database');
 
-const fromObj = funcs => {
-  const funcNames = O.keys(funcs);
+const {
+  SYM,
+  FST,
+  SND,
+  REDUCED_TO,
+  REDUCED_FROM,
+  REF_FST,
+  REF_SND,
+  REF_BOTH,
+
+  isSym,
+  isPair,
+  infoSym,
+  infoPair,
+} = Database;
+
+const fromObj = objNamesFuncs => {
+  const funcNamesArr = O.keys(objNamesFuncs);
+  const funcSymsArr = [];
+  const funcSymsObj = O.obj();
+  const objNamesFuncsNew = O.obj();
+  const objNamesSyms = O.obj();
+  const objSymsNames = O.obj();
+  const objSymsFuncs = O.obj();
   const db = new Database();
-  const syms = O.obj();
 
   const name2sym = name => {
-    if(!O.has(syms, name)){
+    if(!O.has(objNamesSyms, name)){
       const sym = Symbol(name);
 
-      syms[name] = sym;
-      syms[sym] = name;
+      objNamesSyms[name] = sym;
+      objSymsNames[sym] = name;
     }
 
-    return syms[name];
+    return objNamesSyms[name];
   };
 
-  const getTypeSym = function*(expr){
-    if(isSym(expr))
-      return expr;
-
-    return O.tco(getTypeSym, expr[0]);
-  };
-
-  const getArgs = function*(expr){
-    if(isSym(expr))
-      return [];
-
-    return [...yield [getArgs, expr[0]], expr[1]];
-  };
-
-  const reduce = function*(expr){
-    const name = yield [getTypeSym, expr];
-    assert(isFunc(name));
-
-    const arity = getArity(name);
-    const args = yield [getArgs, expr];
-    assert(args.length <= arity);
-
-    if(args.length !== arity)
-      return O.tco(insert, expr);
-
-    return O.tco(call, name, args);
-  };
-
-  const call = function*(name, args=[]){
-    assert(getArity(name) === args.length);
-
-    const func = getFunc(name);
-    const gen = func(...args);
-
-    let arg = null;
-
-    while(1){
-      const result = gen.next(arg);
-      const {value: val, done} = result;
-
-      assert(val.length !== 0);
-
-      if(!done){
-        const call = yield [convertToCall, val];
-        arg = yield [reduce, call];
-        continue;
-      }
-
-      return O.tco(convertToStruct, val);
-    }
+  const sym2name = sym => {
+    assert(O.has(objSymsNames, sym));
+    return objSymsNames[sym];
   };
 
   const isFunc = sym => {
-    return O.has(funcs, sym.description);
+    return O.has(funcSymsObj, sym);
   };
 
-  const extractName = function*(expr){
-    if(expr.isSymbol)
-      return expr.name;
-
-    assert(expr.isStruct);
-
-    return O.tco(extractName, expr.fst);
+  const getArity = sym => {
+    return getFunc(sym).length;
   };
 
-  const extractArgs = function*(expr){
-    if(expr.isSymbol)
+  const getFunc = sym => {
+    assert(isFunc(sym));
+    return objSymsFuncs[sym];
+  };
+
+  const reduce = function*(entry){
+    const info = db.getInfo(entry);
+    const sym = yield [info2sym, info];
+    const args = yield [info2args, info];
+    const arity = getArity(sym);
+
+    assert(args.length <= arity);
+
+    if(args.length !== arity)
+      return entry;
+
+    return O.tco(call, sym, args);
+  };
+
+  const call = function*(funcSym, args){
+    const func = getFunc(funcSym);
+    let arg = null;
+  };
+
+  const info2sym = function*(info){
+    if(infoSym(info))
+      return info[FST];
+
+    return O.tco(info2sym, info[FST]);
+  };
+
+  const info2args = function*(info){
+    if(infoSym(info))
       return [];
 
-    assert(expr.isStruct);
-
-    const args = yield [extractArgs, expr.fst];
-    args.push(expr.snd);
-
-    return args;
+    return [...yield [info2args, info[FST]], info[SND]];
   };
 
-  const toStruct = function*(a, b){
-    return [a, b];
-  };
+  for(const name of funcNamesArr){
+    const sym = name2sym(name);
 
-  const toCall = function*(a, b){
-    return O.tco(reduce, [a, b]);
-  };
-  
-  const convertToStruct = function*(expr){
-    return O.tco(convertToCtor, expr, toStruct);
-  };
+    objSymsFuncs[sym] = objNamesFuncs[name];
+    funcSymsArr.push(sym);
+    funcSymsObj[sym] = 1;
+  }
 
-  const convertToCall = function*(expr){
-    return O.tco(convertToCtor, expr, toCall);
-  };
+  for(const funcSym of funcSymsArr){
+    const reduced = O.rec(reduce, db.add(funcSym));
+    objNamesFuncsNew[sym2name(funcSym)] = reduced;
+  }
 
-  const convertToCtor = function*(expr, func, index=null){
-    if(expr instanceof Expression)
-      return expr;
-
-    if(typeof expr === 'string')
-      return nameToExpr(expr);
-
-    assert(Array.isArray(expr));
-    assert(expr.length !== 0);
-
-    if(index === null)
-      index = expr.length - 1;
-
-    if(index === 0)
-      return O.tco(convertToStruct, expr[0]);
-
-    const fst = yield [convertToCtor, expr, func, index - 1];
-    const snd = yield [convertToStruct, expr[index]];
-
-    return O.tco(func, fst, snd);
-  };
-
-  const getFuncId = name => {
-    return name2sym(name);
-  };
-
-  const getArity = name => {
-    return getFunc(name).length;
-  };
-
-  const isNullary = name => {
-    return getArity(name) === 0;
-  };
-
-  const hasFunc = name => {
-    return O.has(funcs, syms[name]);
-  };
-
-  const getFunc = name => {
-    if(!hasFunc(name))
-      throw new TypeError(`Undefined function ${O.sf(name)}`);
-
-    return funcs[syms[name]];
-  };
-
-  const nameToExpr = name => {
-    if(hasFunc(name)) return getFuncId(name);
-    return new cs.Symbol(name);
-  };
-
-  const handler = function*(expr){
-    if(expr.isAlias)
-      return O.tco(call, expr.name);
-    
-    assert(expr.isCall);
-
-    const {fst, snd} = expr;
-    const name = yield [extractName, fst];
-
-    const arity = getArity(name);
-    const args = yield [extractArgs, fst];
-    args.push(snd);
-
-    const argsNum = args.length;
-
-    if(argsNum < arity)
-      return new cs.Struct(fst, snd);
-
-    assert(argsNum === arity);
-
-    return O.tco(call, name, args);
-  };
-
-  const objNew = O.obj();
-
-  for(const name of funcNames)
-    objNew[name] = O.rec(reduce, getFuncId(name));
-
-  return [db, objNew];
-};
-
-const isSym = expr => {
-  return typeof expr === 'symbol';
-};
-
-const isPair = expr => {
-  return typeof expr === 'object';
+  return [db, objNamesFuncsNew];
 };
 
 module.exports = {
   Database,
 
   fromObj,
-
-  isSym,
-  isPair,
 };
